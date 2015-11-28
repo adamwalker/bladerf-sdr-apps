@@ -22,11 +22,13 @@ import Graphics.DynamicGraph.Waterfall
 import Graphics.DynamicGraph.Util
 
 import LibBladeRF.LibBladeRF
+import LibBladeRF.Types
 import LibBladeRF.Pipes
 
 data Options = Options {
     frequency    :: Int,
     sampleRate   :: Int,
+    bandwidth    :: Maybe Int,
     fftSize      :: Maybe Int,
     windowWidth  :: Maybe Int,
     windowHeight :: Maybe Int,
@@ -58,6 +60,12 @@ optParser = Options
               <> metavar "RATE" 
               <> help "Sample rate"
               )
+          <*> optional (option (fmap fromIntegral parseSize) (
+                 long "bandwidth" 
+              <> short 'b' 
+              <> metavar "BW" 
+              <> help "Bandwidth. Defaults to sample rate / 2"
+              ))
           <*> optional (option (fmap fromIntegral parseSize) (
                  long "size" 
               <> short 's' 
@@ -96,10 +104,11 @@ doIt Options{..} = do
     res <- lift setupGLFW
     unless res (left "Unable to initilize GLFW")
 
-    let fftSize' =  fromMaybe 8192 fftSize
-        window   =  hanning fftSize' :: VS.Vector CDouble
+    let fftSize'  = fromMaybe 8192 fftSize
+        window    = hanning fftSize' :: VS.Vector CDouble
+        bw        = fromMaybe (sampleRate `quot` 2) bandwidth
     dev          <- lift openBladeRF
-    str          <- lift $ bladeRFSource dev frequency sampleRate (sampleRate `quot` 4)
+    str          <- bladeRFSource dev (BladeRFRxConfig frequency sampleRate bw 30 3 LNA_GAIN_MAX)
     rfFFT        <- lift $ fftw fftSize'
     rfSpectrum   <- plotWaterfall (fromMaybe 1024 windowWidth) (fromMaybe 480 windowHeight) fftSize' (fromMaybe 1000 rows) (fromMaybe jet_mod colorMap)
     --rfSpectrum   <- plotFill (maybe 1024 id windowWidth) (maybe 480 id windowHeight) fftSize' (maybe jet_mod id colorMap)
@@ -109,7 +118,7 @@ doIt Options{..} = do
                      >-> P.map (interleavedIQSigned2048ToFloat :: VS.Vector CShort -> VS.Vector (Complex CDouble)) 
                      >-> P.map (VG.zipWith (flip mult) window . VG.zipWith mult (fftFixup fftSize')) 
                      >-> rfFFT 
-                     >-> P.map (VG.map ((* (2048 / fromIntegral fftSize')) . realToFrac . magnitude)) 
+                     >-> P.map (VG.map ((* (512 / fromIntegral fftSize')) . realToFrac . magnitude)) 
                      >-> rfSpectrum 
 
 main = execParser opt >>= eitherT putStrLn return . doIt
