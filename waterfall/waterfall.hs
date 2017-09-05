@@ -6,6 +6,7 @@ import Data.Complex
 import Foreign.C.Types
 import Data.Maybe
 import Control.Monad
+import Data.Monoid
 
 import Pipes as P
 import Pipes.Prelude as P
@@ -105,7 +106,7 @@ doIt Options{..} = do
     unless res (left "Unable to initilize GLFW")
 
     let fftSize'  = fromMaybe 8192 fftSize
-        window    = hanning fftSize' :: VS.Vector CDouble
+        window    = hanning fftSize' :: VS.Vector Double
         bw        = fromMaybe (sampleRate `quot` 2) bandwidth
     dev          <- lift openBladeRF
     str          <- bladeRFSource dev (BladeRFRxConfig frequency sampleRate bw 30 3 LNA_GAIN_MAX)
@@ -115,7 +116,7 @@ doIt Options{..} = do
     --rfSpectrum   <- plotTexture (maybe 1024 id windowWidth) (maybe 480 id windowHeight) fftSize' fftSize'
 
     lift $ runEffect $   str 
-                     >-> P.map (interleavedIQSigned2048ToFloat :: VS.Vector CShort -> VS.Vector (Complex CDouble)) 
+                     >-> P.map (interleavedIQSigned2048ToFloat :: VS.Vector CShort -> VS.Vector (Complex Double)) 
                      >-> P.map (VG.zipWith (flip mult) window . VG.zipWith mult (halfBandUp fftSize')) 
                      >-> rfFFT 
                      >-> P.map (VG.map ((* (512 / fromIntegral fftSize')) . realToFrac . magnitude)) 
